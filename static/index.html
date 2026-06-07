@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Histopathologie</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f0f4f5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 600px;
+            width: 90%;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        header h1 {
+            color: #1A6B72;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        header p {
+            color: #5A6A72;
+            font-size: 14px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #E8F4F5;
+            color: #1A6B72;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 4px 10px;
+            border-radius: 20px;
+            margin-top: 8px;
+        }
+
+        .upload-zone {
+            border: 2px dashed #1A6B72;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-bottom: 20px;
+        }
+
+        .upload-zone:hover { background: #E8F4F5; }
+
+        .upload-zone p { color: #5A6A72; margin-top: 8px; font-size: 14px; }
+
+        .upload-icon { font-size: 48px; }
+
+        #file-input { display: none; }
+
+        #preview {
+            display: none;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        #preview img {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            border: 2px solid #E8F4F5;
+        }
+
+        #preview p {
+            color: #5A6A72;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+
+        button {
+            width: 100%;
+            background: #1A6B72;
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background: #145A60; }
+        button:disabled { background: #aaa; cursor: not-allowed; }
+
+        #result {
+            display: none;
+            margin-top: 24px;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        #result.tumeur {
+            background: #FFE8E8;
+            border: 2px solid #E07B7B;
+        }
+
+        #result.sain {
+            background: #E8F5E8;
+            border: 2px solid #5A9A5A;
+        }
+
+        #result .emoji { font-size: 48px; margin-bottom: 8px; }
+
+        #result .prediction {
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        #result.tumeur .prediction { color: #C0392B; }
+        #result.sain .prediction { color: #27AE60; }
+
+        #result .confidence {
+            font-size: 15px;
+            color: #5A6A72;
+        }
+
+        #result .model-info {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 10px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            margin-top: 16px;
+            color: #1A6B72;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>🔬 API Histopathologie</h1>
+        <p>Classification de lames histopathologiques par IA</p>
+        <p style="color: #1A6B72; font-weight: bold; margin-top: 4px;">Anna Ngo</p>
+        <span class="badge">UNI — Nature Medicine · Val Acc 92%</span>
+    </header>
+
+    <div class="upload-zone" onclick="document.getElementById('file-input').click()">
+        <div class="upload-icon">🖼️</div>
+        <p>Cliquez ou glissez une image histopathologique</p>
+        <p>JPG ou PNG</p>
+        <input type="file" id="file-input" accept="image/jpeg,image/png">
+    </div>
+
+    <div id="preview">
+        <img id="preview-img" src="" alt="Aperçu">
+        <p id="preview-name"></p>
+    </div>
+
+    <button id="btn-predict" disabled onclick="predict()">
+        Analyser l'image
+    </button>
+
+    <div class="loading" id="loading">
+        ⏳ Analyse en cours...
+    </div>
+
+    <div id="result">
+        <div class="emoji" id="result-emoji"></div>
+        <div class="prediction" id="result-prediction"></div>
+        <div class="confidence" id="result-confidence"></div>
+        <div class="model-info">Modèle : UNI (MahmoodLab) — Nature Medicine</div>
+    </div>
+</div>
+
+<script>
+    const fileInput = document.getElementById('file-input');
+    const preview = document.getElementById('preview');
+    const previewImg = document.getElementById('preview-img');
+    const previewName = document.getElementById('preview-name');
+    const btnPredict = document.getElementById('btn-predict');
+    const result = document.getElementById('result');
+    const loading = document.getElementById('loading');
+
+    fileInput.addEventListener('change', function() {
+        const file = this.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            previewImg.src = e.target.result;
+            previewName.textContent = file.name;
+            preview.style.display = 'block';
+            btnPredict.disabled = false;
+            result.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    });
+
+    async function predict() {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        btnPredict.disabled = true;
+        loading.style.display = 'block';
+        result.style.display = 'none';
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch('/predict', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            const isTumeur = data.prediction.includes('Tumeur');
+
+            result.className = isTumeur ? 'tumeur' : 'sain';
+            document.getElementById('result-emoji').textContent = isTumeur ? '🔴' : '🟢';
+            document.getElementById('result-prediction').textContent = data.prediction;
+            document.getElementById('result-confidence').textContent = `Confiance : ${data.confidence}`;
+            result.style.display = 'block';
+
+        } catch (err) {
+            alert('Erreur lors de l\'analyse. Vérifiez que l\'API tourne.');
+        } finally {
+            btnPredict.disabled = false;
+            loading.style.display = 'none';
+        }
+    }
+
+    // Drag & drop
+    const uploadZone = document.querySelector('.upload-zone');
+    uploadZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        uploadZone.style.background = '#E8F4F5';
+    });
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.style.background = '';
+    });
+    uploadZone.addEventListener('drop', e => {
+        e.preventDefault();
+        uploadZone.style.background = '';
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            fileInput.files = e.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change'));
+        }
+    });
+</script>
+</body>
+</html>

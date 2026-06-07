@@ -1,38 +1,65 @@
-from fastapi import FastAPI, File, UploadFile
-from transformers import AutoImageProcessor, AutoModelForImageClassification
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from PIL import Image
 import io
 import torch
-from fastapi import FastAPI, File, UploadFile, HTTPException
-import timm
+import torch.nn as nn
 import torch.nn.functional as F
+import timm
 from torchvision import transforms
-from huggingface_hub import login, hf_hub_download
+from huggingface_hub import login
 import os
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+# Authentification HuggingFace
 login(token=os.environ.get("HF_TOKEN"))
+
 # Créer l'application FastAPI
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-## Charger le modèle une seule fois au démarrage
+@app.get("/ui")
+def ui():
+    return FileResponse("static/index.html")
+# Device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Utilisation : {device}")
 
-# print("Chargement du modèle...")
-# model_name = "google/vit-base-patch16-224"
-# processor = AutoImageProcessor.from_pretrained(model_name)
-# model = AutoModelForImageClassification.from_pretrained(model_name)
-# print("Modèle prêt !")
+# ── Tête de classification (identique à train.py) ─────────────────────────────
+class HistoClassifier(nn.Module):
+    def __init__(self, backbone):
+        super().__init__()
+        self.backbone = backbone
+        self.classifier = nn.Sequential(
+            nn.Linear(1024, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 2)
+        )
 
-# Charger le modèle UNI
+    def forward(self, x):
+        features = self.backbone(x)
+        return self.classifier(features)
+
+# ── Charger le modèle ─────────────────────────────────────────────────────────
 print("Chargement du modèle UNI...")
-
-model = timm.create_model(
+backbone = timm.create_model(
     "hf-hub:MahmoodLab/uni",
     pretrained=True,
     init_values=1e-5,
     dynamic_img_size=True
 )
-model.eval()
 
-# Transformation des images
+model = HistoClassifier(backbone)
+model.load_state_dict(torch.load("histo_classifier.pth", map_location=device))
+model.to(device)
+model.eval()
+print("Modèle prêt !")
+
+# Labels
+LABELS = {0: "Pas de tumeur", 1: "Tumeur détectée"}
+
+# ── Transformations ───────────────────────────────────────────────────────────
 transform = transforms.Compose([
     transforms.Resize(224),
     transforms.CenterCrop(224),
@@ -41,54 +68,48 @@ transform = transforms.Compose([
                          std=(0.229, 0.224, 0.225)),
 ])
 
-print("Modèle UNI prêt !")
-# Route de test pour vérifier que l'API fonctionne
+# ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/")
 def home():
-    return {"message": "API Histopathologie opérationnelle"}
+    return {
+        "message": "API Histopathologie - UNI (Nature Medicine) + PatchCamelyon",
+        "modele": "MahmoodLab/UNI",
+        "tache": "Classification tumeur / pas tumeur",
+        "accuracy_validation": "92.05%"
+    }
 
-# Route principale : reçoit une image et retourne une prédiction
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
+    # Vérifier le type de fichier
     if file.content_type not in ["image/jpeg", "image/png"]:
         raise HTTPException(
-            status_code = 400,
-            detail = "Format non supporté. Envoyez une image JPG ou PNG"
+            status_code=400,
+            detail="Format non supporté. Envoyez une image JPG ou PNG."
         )
-    # Lire l'image envoyée
+
     contents = await file.read()
-    # Vérifier que l'imgae est lisible
+
     try:
         image = Image.open(io.BytesIO(contents)).convert("RGB")
     except Exception:
         raise HTTPException(
             status_code=400,
-            detail ="Impossible de lire l'image. FIchier corrompu?"
+            detail="Impossible de lire l'image. Fichier corrompu ?"
         )
 
-    # # Faire la prédiction
-    # inputs = processor(images=image, return_tensors="pt")
-    # outputs = model(**inputs)
-    # predicted_class = outputs.logits.argmax(-1).item()
-    # label = model.config.id2label[predicted_class]
+    # Préparer l'image
+    img_tensor = transform(image).unsqueeze(0).to(device)
 
-    # Préparer l'image pour UNI
-    img_tensor = transform(image).unsqueeze(0)
-
-    # Extraire les features avec UNI
+    # Prédiction
     with torch.inference_mode():
-        features = model(img_tensor)
+        outputs = model(img_tensor)
+        probabilities = F.softmax(outputs, dim=-1)
+        predicted_class = probabilities.argmax(dim=-1).item()
+        confidence = probabilities[0][predicted_class].item()
 
-
-    # probabilities = F.softmax(outputs.logits, dim=-1)
-    # confidence = probabilities[0][predicted_class].item()
-    # confidence_pct = round(confidence * 100, 2)
     return {
-        "message": "Features extraites avec succès",
-        "modele": "UNI - Nature Medicine (MahmoodLab)",
-        "taille_features": features.shape[1],
-        "filename": file.filename
-        # "prediction": label,
-        # "confidence": f"{confidence_pct}%",
-        # "filename": file.filename
+        "prediction": LABELS[predicted_class],
+        "confidence": f"{round(confidence * 100, 2)}%",
+        "filename": file.filename,
+        "modele": "UNI - Nature Medicine"
     }
