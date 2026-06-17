@@ -31,6 +31,13 @@ uvicorn main:app --reload
 
 L'API est accessible sur `http://127.0.0.1:8000`
 
+# Interface web
+
+Une interface web permet de tester l'API visuellement (drag & drop d'image).
+
+Une fois l'API lancée, ouvrir dans le navigateur :
+http://127.0.0.1:8000/ui
+
 ## Endpoints
 
 | Méthode | Route | Description |
