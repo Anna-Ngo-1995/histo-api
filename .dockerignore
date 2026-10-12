@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+venv/
+.venv/
+.env
+*.pth
+*.ipynb
+train.py
+test_model.py
+get_test_image.py
+README.md
