@@ -46,5 +46,35 @@ http://127.0.0.1:8000/ui
 | POST | `/predict` | Envoie une image, reçoit une prédiction |
 
 ## Documentation interactive
+## Lancer avec Docker
 
+L'image ne contient ni les poids du modèle ni de token : ils sont fournis au lancement.
+
+**Prérequis**
+
+- Un token Hugging Face (lecture) avec accès au modèle protégé [MahmoodLab/UNI](https://huggingface.co/MahmoodLab/UNI).
+- Le fichier `histo_classifier.pth` (environ 1,2 Go, non versionné car trop lourd pour GitHub), généré par `train.py`.
+
+**Construire l'image**
+
+```bash
+docker build -t histo-api .
+```
+
+**Lancer le container**
+
+```bash
+read -s -p "Token HF : " HF_TOKEN; export HF_TOKEN
+docker run --rm -p 8000:8000 \
+  -e HF_TOKEN \
+  -v "$(pwd)/histo_classifier.pth:/app/histo_classifier.pth:ro" \
+  -v hf_cache:/root/.cache/huggingface \
+  histo-api
+```
+
+Au premier démarrage, les poids d'UNI (environ 1,2 Go) sont téléchargés et conservés dans le volume `hf_cache`.
+
+L'API est ensuite disponible sur `http://localhost:8000` : page de test sur `/ui`, documentation interactive sur `/docs`.
+
+Testé dans GitHub Codespaces.
 Accessible sur `http://127.0.0.1:8000/docs`
